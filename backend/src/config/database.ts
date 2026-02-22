@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 export const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI;
+    // const mongoUri = process.env.CLOUD_MONGODB_URI;
     if (!mongoUri) {
       throw new Error("MONGODB_URI environment variable is not defined");
     }
