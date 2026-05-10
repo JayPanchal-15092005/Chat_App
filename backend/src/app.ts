@@ -5,13 +5,18 @@ import { clerkMiddleware } from "@clerk/express";
 
 import authRoutes from "./routes/authRoutes.ts";
 import chatRoutes from "./routes/chatRoutes.ts";
-import messageRoutes from "./routes/chatRoutes.ts";
+import messageRoutes from "./routes/messageRoutes.ts";
 import userRoutes from "./routes/userRoutes.ts";
 import { errorHandler } from "./middleware/errorHandler.ts";
 
 const app = express();
 
 app.use(express.json()); // parses incoming JSON request bodies and makes them available as req.body in your route handlers
+
+app.use(cors({
+  origin: process.env.CLIENT_URL || "https://your-vercel-frontend-url.vercel.app", // We will put your Vercel URL in your Render environment variables
+  credentials: true 
+}));
 
 app.use(clerkMiddleware());
 
@@ -26,14 +31,5 @@ app.use("/api/users", userRoutes);
 
 // error handlers must come after all the routes and other middlewares so they can catch errors passed with next(err) or thrown inside async handlers.
 app.use(errorHandler);
-
-// serve frontend in production
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../../web/dist")));
-
-  app.get("/{*any}", (_, res) => {
-    res.sendFile(path.join(__dirname, "../../web/dist/index.html"));
-  });
-}
 
 export default app;
