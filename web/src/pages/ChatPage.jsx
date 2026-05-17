@@ -6,7 +6,7 @@ import { useSocketConnection } from "../hooks/useSocketConnection";
 import { SparklesIcon, MessageSquareIcon, PlusIcon } from "lucide-react";
 
 import { useChats, useGetOrCreateChat } from "../hooks/useChat";
-import { useMessages } from "../hooks/useMessages";
+import { useMessages } from "../hooks/usemessages";
 import { ChatListItem } from "../components/ChatListItem";
 import { ChatHeader } from "../components/ChatHeader";
 import { MessageBubble } from "../components/MessageBubble";
