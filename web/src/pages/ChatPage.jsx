@@ -11,7 +11,7 @@ import { ChatListItem } from "../components/ChatListItem";
 import { ChatHeader } from "../components/ChatHeader";
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
-import { useCurrentUser } from "../hooks/useCurrentUser";
+import { useCurrentUser } from "../hooks/useCurrentuser";
 import { NewChatModal } from "../components/NewChatModel";
 
 // this code can be a lot cleaner, but here we try to keep it simple yet working
