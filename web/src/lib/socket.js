@@ -12,8 +12,6 @@ export const useSocketStore = create((set, get) => ({
   connect: (token, queryClient) => {
     const existingSocket = get().socket;
     if (existingSocket?.connected || !queryClient) return;
-
-    // disconnect existing socket if any
     if (existingSocket) existingSocket.disconnect();
 
     const socket = io(SOCKET_URL, { auth: { token } });
@@ -35,9 +33,7 @@ export const useSocketStore = create((set, get) => ({
     });
 
     socket.on("user-online", ({ userId }) => {
-      set((state) => ({
-        onlineUsers: new Set([...state.onlineUsers, userId]),
-      }));
+      set((state) => ({ onlineUsers: new Set([...state.onlineUsers, userId]) }));
     });
 
     socket.on("user-offline", ({ userId }) => {
@@ -57,19 +53,17 @@ export const useSocketStore = create((set, get) => ({
       });
     });
 
+    // ── New message ──────────────────────────────────────────────────
     socket.on("new-message", (message) => {
       const senderId = message.sender?._id;
 
-      // update messages in current chat, replacing optimistic messages
       queryClient.setQueryData(["messages", message.chat], (old) => {
         if (!old) return [message];
-        // remove any optimistic messages (temp IDs) and add the real one
         const filtered = old.filter((m) => !m._id.startsWith("temp-"));
         const exists = filtered.some((m) => m._id === message._id);
         return exists ? filtered : [...filtered, message];
       });
 
-      // update chat's lastMessage directly for instant UI update
       queryClient.setQueryData(["chats"], (oldChats) => {
         return oldChats?.map((chat) => {
           if (chat._id === message.chat) {
@@ -88,11 +82,52 @@ export const useSocketStore = create((set, get) => ({
         });
       });
 
-      // clear typing indicator when message received
       set((state) => {
         const typingUsers = new Map(state.typingUsers);
         typingUsers.delete(message.chat);
         return { typingUsers };
+      });
+    });
+
+    // ── Message status (sent → delivered → seen) ─────────────────────
+    socket.on("message-status-update", ({ chatId, status }) => {
+      queryClient.setQueryData(["messages", chatId], (old) => {
+        if (!old) return old;
+        return old.map((m) => {
+          if (!m._id.startsWith("temp-")) {
+            if (status === "seen" && (m.status === "sent" || m.status === "delivered")) {
+              return { ...m, status: "seen" };
+            }
+            if (status === "delivered" && m.status === "sent") {
+              return { ...m, status: "delivered" };
+            }
+          }
+          return m;
+        });
+      });
+    });
+
+    // ── Reaction update ──────────────────────────────────────────────
+    socket.on("message-reaction-update", ({ messageId, chatId, reactions }) => {
+      queryClient.setQueryData(["messages", chatId], (old) => {
+        if (!old) return old;
+        return old.map((m) => (m._id === messageId ? { ...m, reactions } : m));
+      });
+    });
+
+    // ── Message edited ───────────────────────────────────────────────
+    socket.on("message-edited", ({ messageId, chatId, text, isEdited }) => {
+      queryClient.setQueryData(["messages", chatId], (old) => {
+        if (!old) return old;
+        return old.map((m) => (m._id === messageId ? { ...m, text, isEdited } : m));
+      });
+    });
+
+    // ── Message deleted ──────────────────────────────────────────────
+    socket.on("message-deleted", ({ messageId, chatId }) => {
+      queryClient.setQueryData(["messages", chatId], (old) => {
+        if (!old) return old;
+        return old.filter((m) => m._id !== messageId);
       });
     });
 
@@ -103,12 +138,7 @@ export const useSocketStore = create((set, get) => ({
     const socket = get().socket;
     if (socket) {
       socket.disconnect();
-      set({
-        socket: null,
-        onlineUsers: new Set(),
-        typingUsers: new Map(),
-        queryClient: null,
-      });
+      set({ socket: null, onlineUsers: new Set(), typingUsers: new Map(), queryClient: null });
     }
   },
 
@@ -120,11 +150,18 @@ export const useSocketStore = create((set, get) => ({
     get().socket?.emit("leave-chat", chatId);
   },
 
-  sendMessage: (chatId, text, currentUser) => {
+  markDelivered: (chatId) => {
+    get().socket?.emit("message-delivered", { chatId });
+  },
+
+  markSeen: (chatId) => {
+    get().socket?.emit("message-seen", { chatId });
+  },
+
+  sendMessage: (chatId, text, currentUser, replyToId = null) => {
     const { socket, queryClient } = get();
     if (!socket?.connected || !queryClient) return;
 
-    // create optimistic message
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage = {
       _id: tempId,
@@ -136,25 +173,39 @@ export const useSocketStore = create((set, get) => ({
         avatar: currentUser.imageUrl,
       },
       text,
+      type: "text",
+      status: "sent",
+      replyTo: null,
+      reactions: [],
+      isEdited: false,
       createdAt: new Date().toISOString(),
     };
 
-    // add optimistic message immediately
     queryClient.setQueryData(["messages", chatId], (old) => {
       if (!old) return [optimisticMessage];
       return [...old, optimisticMessage];
     });
 
-    // emit to server
-    socket.emit("send-message", { chatId, text });
+    socket.emit("send-message", { chatId, text, replyToId });
 
-    // handle errors - remove optimistic message if send fails
     socket.once("socket-error", () => {
       queryClient.setQueryData(["messages", chatId], (old) => {
         if (!old) return [];
         return old.filter((m) => m._id !== tempId);
       });
     });
+  },
+
+  reactToMessage: (messageId, chatId, emoji) => {
+    get().socket?.emit("react-message", { messageId, chatId, emoji });
+  },
+
+  editMessage: (messageId, chatId, text) => {
+    get().socket?.emit("edit-message", { messageId, chatId, text });
+  },
+
+  deleteMessage: (messageId, chatId) => {
+    get().socket?.emit("delete-message", { messageId, chatId });
   },
 
   setTyping: (chatId, isTyping) => {
