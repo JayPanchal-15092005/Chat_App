@@ -17,6 +17,7 @@ import { NewChatModal } from "../components/NewChatModel";
 
 import axios from "axios";
 import { useAuth } from "@clerk/clerk-react";
+import { uploadToImageKit } from "../lib/imagekit";
 
 function ChatPage() {
   const { data: currentUser } = useCurrentUser();
@@ -84,6 +85,20 @@ function ChatPage() {
     setMessageInput("");
     setReplyingTo(null);
     setTyping(activeChatId, false);
+  };
+
+  const handleSendMedia = async (type, file) => {
+    if (!activeChatId || !socket || !currentUser) return;
+    try {
+      const token = await getToken();
+      const url = await uploadToImageKit(file, type, token);
+      
+      const text = type === "image" ? "📸 Image" : "🎤 Voice Message";
+      sendMessage(activeChatId, text, currentUser, replyingTo?._id ?? null, type, url);
+      setReplyingTo(null);
+    } catch (err) {
+      console.error("Failed to send media", err);
+    }
   };
 
   const handleTyping = (e) => {
@@ -212,6 +227,7 @@ function ChatPage() {
               value={messageInput}
               onChange={handleTyping}
               onSubmit={handleSend}
+              onSendMedia={handleSendMedia}
               disabled={!messageInput.trim()}
               replyTo={replyingTo}
               onCancelReply={() => setReplyingTo(null)}

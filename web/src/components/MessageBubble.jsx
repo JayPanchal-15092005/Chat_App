@@ -173,7 +173,21 @@ export function MessageBubble({ message, currentUser, chatId, onReply }) {
               </div>
             </form>
           ) : (
-            <p className="text-sm leading-relaxed break-words">{message.text}</p>
+            <div className="flex flex-col gap-2">
+              {message.type === "image" && message.mediaUrl && (
+                <img
+                  src={message.mediaUrl}
+                  alt="Attachment"
+                  className="max-w-full rounded-lg max-h-64 object-contain"
+                />
+              )}
+              {message.type === "voice" && message.mediaUrl && (
+                <audio controls src={message.mediaUrl} className="h-10 w-48" />
+              )}
+              {message.text && message.text !== "📸 Image" && message.text !== "🎤 Voice Message" && (
+                <p className="text-sm leading-relaxed break-words">{message.text}</p>
+              )}
+            </div>
           )}
 
           {/* Footer: time + edited + tick */}

@@ -158,7 +158,7 @@ export const useSocketStore = create((set, get) => ({
     get().socket?.emit("message-seen", { chatId });
   },
 
-  sendMessage: (chatId, text, currentUser, replyToId = null) => {
+  sendMessage: (chatId, text, currentUser, replyToId = null, type = "text", mediaUrl = null) => {
     const { socket, queryClient } = get();
     if (!socket?.connected || !queryClient) return;
 
@@ -173,7 +173,8 @@ export const useSocketStore = create((set, get) => ({
         avatar: currentUser.imageUrl,
       },
       text,
-      type: "text",
+      type,
+      mediaUrl,
       status: "sent",
       replyTo: null,
       reactions: [],
@@ -186,7 +187,7 @@ export const useSocketStore = create((set, get) => ({
       return [...old, optimisticMessage];
     });
 
-    socket.emit("send-message", { chatId, text, replyToId });
+    socket.emit("send-message", { chatId, text, replyToId, type, mediaUrl });
 
     socket.once("socket-error", () => {
       queryClient.setQueryData(["messages", chatId], (old) => {
