@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSocketStore } from "../lib/socket";
+import { useCallStore } from "../lib/callStore";
 
 export const useSocketConnection = (activeChatId) => {
   const { getToken, isSignedIn } = useAuth();
@@ -13,13 +14,20 @@ export const useSocketConnection = (activeChatId) => {
   useEffect(() => {
     if (isSignedIn) {
       getToken().then((token) => {
-        if (token) connect(token, queryClient);
+        if (token) {
+          connect(token, queryClient);
+          if (!useCallStore.getState()._listenersInitialized) {
+            useCallStore.getState().initCallListeners();
+          }
+        }
       });
     } else {
+      useCallStore.getState()._cleanup();
       disconnect();
     }
 
     return () => {
+      useCallStore.getState()._cleanup();
       disconnect();
     };
   }, [isSignedIn, connect, disconnect, getToken, queryClient]);

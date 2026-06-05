@@ -124,7 +124,7 @@ export function ChatInput({ value, onChange, onSubmit, disabled, replyTo, onCanc
             <button
               type="submit"
               disabled={disabled || isUploading}
-              className="btn rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 border-none disabled:btn-disabled text-white"
+              className="btn rounded-xl bg-linear-to-r from-amber-500 to-orange-500 border-none disabled:btn-disabled text-white"
             >
               <SendIcon className="size-5" />
             </button>

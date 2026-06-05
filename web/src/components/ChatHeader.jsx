@@ -1,4 +1,6 @@
+import { Phone } from "lucide-react";
 import { useSocketStore } from "../lib/socket";
+import { useCallStore } from "../lib/callStore";
 
 export function ChatHeader({ participant, chatId }) {
   const { onlineUsers, typingUsers } = useSocketStore();
@@ -7,8 +9,11 @@ export function ChatHeader({ participant, chatId }) {
   const typingUserId = typingUsers.get(chatId);
   const isTyping = typingUserId && typingUserId === participant?._id;
 
+  const { startCall } = useCallStore();
+
   return (
-    <div className="h-16 px-6 border-b border-base-300 flex items-center gap-4 bg-base-200/80">
+    <div className="h-16 px-6 border-b border-base-300 flex items-center justify-between bg-base-200/80">
+      <div className="flex items-center gap-4">
       <div className="relative">
         <img src={participant?.avatar} className="w-10 h-10 rounded-full bg-base-300/40" alt="" />
         {isOnline && (
@@ -21,6 +26,15 @@ export function ChatHeader({ participant, chatId }) {
           {isTyping ? "typing..." : isOnline ? "Online" : "Offline"}
         </p>
       </div>
+      </div>
+
+      <button
+        onClick={() => startCall(participant._id, participant.name, participant.avatar)}
+        className="btn btn-circle btn-ghost text-primary hover:bg-primary/10"
+        title="Start Audio Call"
+      >
+        <Phone className="w-5 h-5" />
+      </button>
     </div>
   );
 }
