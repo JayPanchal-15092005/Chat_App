@@ -77,7 +77,7 @@ export function ActiveCallScreen() {
             onClick={endCall}
             className="w-20 h-20 rounded-full bg-error hover:bg-error/90 flex items-center justify-center text-white transition-transform hover:scale-105 shadow-lg shadow-error/20"
           >
-            <Phone className="w-10 h-10 rotate-[135deg]" />
+            <Phone className="w-10 h-10 rotate-135deg" />
           </button>
         </div>
       </div>

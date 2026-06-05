@@ -46,7 +46,7 @@ export function OutgoingCallScreen() {
           onClick={endCall}
           className="w-16 h-16 rounded-full bg-error hover:bg-error/90 flex items-center justify-center text-white transition-transform hover:scale-110 shadow-lg shadow-error/20"
         >
-          <Phone className="w-8 h-8 rotate-[135deg]" />
+          <Phone className="w-8 h-8 rotate-135deg" />
         </button>
       </div>
     </div>
