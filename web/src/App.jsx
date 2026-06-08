@@ -7,6 +7,7 @@ import useUserSync from "./hooks/useUserSync";
 import { IncomingCallModal } from "./components/IncomingCallModal";
 import { OutgoingCallScreen } from "./components/OutgoingCallScreen";
 import { ActiveCallScreen } from "./components/ActiveCallScreen";
+import { Analytics } from "@vercel/analytics/react";
 
 function App() {
   const { isLoaded, isSignedIn } = useAuth();
@@ -19,7 +20,7 @@ function App() {
       <IncomingCallModal />
       <OutgoingCallScreen />
       <ActiveCallScreen />
-      
+      <Analytics />
       <Routes>
         <Route path="/" element={!isSignedIn ? <HomePage /> : <Navigate to={"/chat"} />} />
         <Route path="/chat" element={isSignedIn ? <ChatPage /> : <Navigate to={"/"} />} />
