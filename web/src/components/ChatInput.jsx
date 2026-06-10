@@ -1,30 +1,51 @@
-import { SendIcon, XIcon, ImageIcon, MicIcon, SquareIcon } from "lucide-react";
+import { SendIcon, XIcon, ImageIcon, MicIcon, SquareIcon, TrashIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 export function ChatInput({ value, onChange, onSubmit, disabled, replyTo, onCancelReply, onSendMedia }) {
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const streamRef = useRef(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl }
+  const [pendingVoice, setPendingVoice] = useState(null); // Blob
 
-  const handleImageClick = () => {
-    fileInputRef.current?.click();
-  };
+  // ── Image picker ──────────────────────────────────────────────────────────
+  const handleImageClick = () => fileInputRef.current?.click();
 
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setIsUploading(true);
-    await onSendMedia("image", file);
-    setIsUploading(false);
-    e.target.value = ""; // reset
+    // Show preview instead of immediately uploading
+    const previewUrl = URL.createObjectURL(file);
+    setPendingImage({ file, previewUrl });
+    e.target.value = ""; // reset so same file can be reselected
   };
 
+  const handleSendImage = async () => {
+    if (!pendingImage) return;
+    setIsUploading(true);
+    try {
+      await onSendMedia("image", pendingImage.file);
+    } finally {
+      URL.revokeObjectURL(pendingImage.previewUrl);
+      setPendingImage(null);
+      setIsUploading(false);
+    }
+  };
+
+  const handleCancelImage = () => {
+    URL.revokeObjectURL(pendingImage?.previewUrl);
+    setPendingImage(null);
+  };
+
+  // ── Voice recorder ────────────────────────────────────────────────────────
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
@@ -33,12 +54,10 @@ export function ChatInput({ value, onChange, onSubmit, disabled, replyTo, onCanc
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      mediaRecorder.onstop = async () => {
+      mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        setIsUploading(true);
-        await onSendMedia("voice", blob);
-        setIsUploading(false);
-        stream.getTracks().forEach((track) => track.stop());
+        setPendingVoice(blob);
+        streamRef.current?.getTracks().forEach((t) => t.stop());
       };
 
       mediaRecorder.start();
@@ -56,6 +75,20 @@ export function ChatInput({ value, onChange, onSubmit, disabled, replyTo, onCanc
     }
   };
 
+  const handleSendVoice = async () => {
+    if (!pendingVoice) return;
+    setIsUploading(true);
+    try {
+      await onSendMedia("voice", pendingVoice);
+    } finally {
+      setPendingVoice(null);
+      setIsUploading(false);
+    }
+  };
+
+  const handleDiscardVoice = () => setPendingVoice(null);
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="border-t border-base-300">
       {/* Reply preview */}
@@ -79,72 +112,151 @@ export function ChatInput({ value, onChange, onSubmit, disabled, replyTo, onCanc
         </div>
       )}
 
-      {/* Input row */}
-      <form onSubmit={onSubmit} className="p-4">
-        <div className="flex items-center gap-3">
-          <input
-            type="file"
-            accept="image/*"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-          />
-
-          {!isRecording && (
-            <button
-              type="button"
-              onClick={handleImageClick}
-              disabled={isUploading}
-              className="btn btn-ghost btn-circle text-base-content/70 hover:text-amber-500"
-              title="Attach Image"
-            >
-              <ImageIcon className="size-5" />
-            </button>
-          )}
-
-          {isRecording ? (
-            <div className="flex-1 flex items-center justify-center text-error font-bold bg-base-300/40 rounded-xl h-12">
-              Recording... 🎤
-            </div>
-          ) : (
-            <input
-              type="text"
-              value={value}
-              onChange={onChange}
-              disabled={isUploading}
-              placeholder={isUploading ? "Uploading..." : replyTo ? "Write a reply..." : "Type a message..."}
-              className="input input-bordered flex-1 rounded-xl bg-base-300/40 border-base-300 placeholder:text-base-content/60"
-              onKeyDown={(e) => {
-                if (e.key === "Escape" && replyTo) onCancelReply?.();
-              }}
+      {/* ── Image Preview ─────────────────────────────────────────────── */}
+      {pendingImage && (
+        <div className="flex items-center gap-4 px-4 py-3 bg-base-300/60 border-b border-base-300">
+          <div className="relative">
+            <img
+              src={pendingImage.previewUrl}
+              alt="Preview"
+              className="w-20 h-20 rounded-xl object-cover border border-base-300"
             />
-          )}
-
-          {value.trim() ? (
-            <button
-              type="submit"
-              disabled={disabled || isUploading}
-              className="btn rounded-xl bg-linear-to-r from-amber-500 to-orange-500 border-none disabled:btn-disabled text-white"
-            >
-              <SendIcon className="size-5" />
-            </button>
-          ) : (
+          </div>
+          <p className="flex-1 text-sm text-base-content/70">Ready to send</p>
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isUploading}
-              className={`btn rounded-xl border-none text-white ${
-                isRecording
-                  ? "bg-error hover:bg-error/80"
-                  : "bg-base-300 text-base-content hover:bg-amber-500 hover:text-white"
-              }`}
-              title={isRecording ? "Stop Recording" : "Record Voice"}
+              onClick={handleCancelImage}
+              className="btn btn-ghost btn-sm btn-circle"
+              title="Cancel"
             >
-              {isRecording ? <SquareIcon className="size-5" /> : <MicIcon className="size-5" />}
+              <XIcon className="w-4 h-4" />
             </button>
-          )}
+            <button
+              type="button"
+              onClick={handleSendImage}
+              disabled={isUploading}
+              className="btn btn-sm rounded-xl bg-amber-500 hover:bg-amber-600 border-none text-white"
+            >
+              {isUploading ? (
+                <span className="loading loading-spinner loading-xs" />
+              ) : (
+                <>
+                  <SendIcon className="w-4 h-4" />
+                  <span>Send</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
-      </form>
+      )}
+
+      {/* ── Voice Preview ─────────────────────────────────────────────── */}
+      {pendingVoice && !pendingImage && (
+        <div className="flex items-center gap-4 px-4 py-3 bg-base-300/60 border-b border-base-300">
+          <div className="flex-1 flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+              <MicIcon className="w-4 h-4 text-amber-500" />
+            </div>
+            <span className="text-sm text-base-content/70">Voice message recorded</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleDiscardVoice}
+              className="btn btn-ghost btn-sm btn-circle text-error"
+              title="Discard"
+            >
+              <TrashIcon className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleSendVoice}
+              disabled={isUploading}
+              className="btn btn-sm rounded-xl bg-amber-500 hover:bg-amber-600 border-none text-white"
+            >
+              {isUploading ? (
+                <span className="loading loading-spinner loading-xs" />
+              ) : (
+                <>
+                  <SendIcon className="w-4 h-4" />
+                  <span>Send</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Normal input row (hidden when preview is active) ──────────── */}
+      {!pendingImage && !pendingVoice && (
+        <form onSubmit={onSubmit} className="p-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {!isRecording && (
+              <button
+                type="button"
+                onClick={handleImageClick}
+                disabled={isUploading}
+                className="btn btn-ghost btn-circle text-base-content/70 hover:text-amber-500"
+                title="Attach Image"
+              >
+                <ImageIcon className="size-5" />
+              </button>
+            )}
+
+            {isRecording ? (
+              <div className="flex-1 flex items-center justify-center text-error font-bold bg-base-300/40 rounded-xl h-12 gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-error animate-pulse" />
+                Recording...
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={value}
+                onChange={onChange}
+                disabled={isUploading}
+                placeholder={isUploading ? "Uploading..." : replyTo ? "Write a reply..." : "Type a message..."}
+                className="input input-bordered flex-1 rounded-xl bg-base-300/40 border-base-300 placeholder:text-base-content/60"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && replyTo) onCancelReply?.();
+                }}
+              />
+            )}
+
+            {value.trim() ? (
+              <button
+                type="submit"
+                disabled={disabled || isUploading}
+                className="btn rounded-xl bg-linear-to-r from-amber-500 to-orange-500 border-none disabled:btn-disabled text-white"
+              >
+                <SendIcon className="size-5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={isUploading}
+                className={`btn rounded-xl border-none text-white ${
+                  isRecording
+                    ? "bg-error hover:bg-error/80"
+                    : "bg-base-300 text-base-content hover:bg-amber-500 hover:text-white"
+                }`}
+                title={isRecording ? "Stop Recording" : "Record Voice"}
+              >
+                {isRecording ? <SquareIcon className="size-5" /> : <MicIcon className="size-5" />}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
     </div>
   );
 }

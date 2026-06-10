@@ -26,6 +26,7 @@ export function ActiveCallScreen() {
   useEffect(() => {
     if (audioRef.current && remoteStream) {
       audioRef.current.srcObject = remoteStream;
+      audioRef.current.play().catch(err => console.warn("[WebRTC] Audio auto-play failed:", err));
     }
   }, [remoteStream]);
 
@@ -34,7 +35,7 @@ export function ActiveCallScreen() {
   return (
     <div className="fixed inset-0 z-9997 flex items-center justify-center bg-black/95 backdrop-blur-xl">
       {/* The remote audio stream plays here */}
-      <audio ref={audioRef} autoPlay />
+      <audio ref={audioRef} autoPlay playsInline />
 
       <div className="flex flex-col items-center">
         <div className="text-white/60 text-lg mb-8 font-mono">
