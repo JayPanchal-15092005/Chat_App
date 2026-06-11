@@ -3,6 +3,65 @@ import api from "./axios";
 import { useSocketStore } from "./socket";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SINGLETON AUDIO ELEMENT — lives at module scope, never garbage collected,
+// never unmounted. This is the definitive fix for "audio element lost" bugs.
+// ─────────────────────────────────────────────────────────────────────────────
+const _remoteAudio = new Audio();
+_remoteAudio.autoplay = true;
+
+/**
+ * Attach a MediaStream to the singleton audio element and force playback.
+ * Safe to call multiple times — detaches before re-attaching.
+ */
+function _playRemoteStream(stream) {
+  if (!stream) {
+    _remoteAudio.srcObject = null;
+    console.log("[WebRTC] Remote audio cleared");
+    return;
+  }
+
+  console.log("[WebRTC] ▶ Attaching remote stream to Audio singleton", stream.id);
+  const audioTracks = stream.getAudioTracks();
+  console.log("[WebRTC]   Audio tracks:", audioTracks.length);
+  audioTracks.forEach((t) =>
+    console.log(`  id=${t.id} enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
+  );
+
+  if (audioTracks.length === 0) {
+    console.error("[WebRTC] ❌ Remote stream has NO audio tracks — cannot play audio");
+    return;
+  }
+
+  _remoteAudio.srcObject = null; // force detach first
+  _remoteAudio.srcObject = stream;
+
+  const tryPlay = () => {
+    _remoteAudio.play()
+      .then(() => console.log("[WebRTC] ✅ Remote audio playing"))
+      .catch((err) => {
+        console.error("[WebRTC] ❌ play() failed:", err.name, err.message);
+        if (err.name === "NotAllowedError") {
+          // Browser autoplay blocked — user hasn't interacted yet.
+          // Listen for next click/keydown to start playback.
+          const unlock = () => {
+            _remoteAudio.play()
+              .then(() => console.log("[WebRTC] ✅ Audio unlocked via user gesture"))
+              .catch((e) => console.error("[WebRTC] Unlock play failed:", e));
+            document.removeEventListener("click", unlock);
+            document.removeEventListener("keydown", unlock);
+          };
+          document.addEventListener("click", unlock, { once: true });
+          document.addEventListener("keydown", unlock, { once: true });
+          console.warn("[WebRTC] Autoplay blocked — waiting for user gesture to unlock audio");
+        }
+      });
+  };
+
+  // Small timeout lets the browser finish processing srcObject assignment
+  setTimeout(tryPlay, 100);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TURN / STUN server config
 // ─────────────────────────────────────────────────────────────────────────────
 const fetchIceServers = async () => {
@@ -16,22 +75,21 @@ const fetchIceServers = async () => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: create a RTCPeerConnection with full debug logging
+// Helper: create RTCPeerConnection with state logging
 // ─────────────────────────────────────────────────────────────────────────────
 function createPC(iceServers) {
   const pc = new RTCPeerConnection({ iceServers });
-
   pc.onconnectionstatechange = () => console.log("[WebRTC] connectionState:", pc.connectionState);
   pc.oniceconnectionstatechange = () => console.log("[WebRTC] iceConnectionState:", pc.iceConnectionState);
   pc.onsignalingstatechange = () => console.log("[WebRTC] signalingState:", pc.signalingState);
-
   return pc;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: get local audio stream with permission check
+// Helper: getUserMedia with constraint logging
 // ─────────────────────────────────────────────────────────────────────────────
 async function getLocalAudioStream() {
+  console.log("[WebRTC] Requesting getUserMedia audio...");
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
@@ -44,49 +102,80 @@ async function getLocalAudioStream() {
   const tracks = stream.getAudioTracks();
   console.log("[WebRTC] Local audio tracks:", tracks.length);
   tracks.forEach((t) =>
-    console.log(`  track id=${t.id} label="${t.label}" enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
+    console.log(`  id=${t.id} label="${t.label}" enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
   );
-
   return stream;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: wire local tracks, ICE, and ontrack onto a PC
+// Helper: add local tracks + wire ontrack on the PC
+//
+// CRITICAL ORDER:
+//   1. addTransceiver (explicit sendrecv) — ensures the SDP offer/answer
+//      contains an audio m-line with sendrecv direction
+//   2. addTrack (local media)
+//   3. ontrack (remote media)
+//   4. THEN createOffer / setRemoteDescription
 // ─────────────────────────────────────────────────────────────────────────────
 function wirePC(pc, localStream, onRemoteStream, targetUserId, socket, label) {
-  // Add local tracks BEFORE createOffer / createAnswer
+  // Explicit transceiver ensures SDP has audio m-line with sendrecv
+  // react-native-webrtc on the other side needs this to negotiate properly.
+  const transceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
+  console.log(`[WebRTC][${label}] addTransceiver audio sendrecv, mid=${transceiver.mid}`);
+
+  // Replace the transceiver's sender track with the real local track
+  const localAudioTrack = localStream.getAudioTracks()[0];
+  if (localAudioTrack && transceiver.sender) {
+    transceiver.sender.replaceTrack(localAudioTrack).catch((e) =>
+      console.warn(`[WebRTC][${label}] replaceTrack failed:`, e)
+    );
+  }
+
+  // Also call addTrack for maximum compat (some browser/RN-webrtc combos need both)
   localStream.getTracks().forEach((track) => {
-    pc.addTrack(track, localStream);
-    console.log(`[WebRTC][${label}] addTrack id=${track.id} kind=${track.kind}`);
+    try {
+      pc.addTrack(track, localStream);
+      console.log(`[WebRTC][${label}] addTrack id=${track.id} kind=${track.kind}`);
+    } catch (e) {
+      // DOMException: track already added via transceiver — safe to ignore
+      console.log(`[WebRTC][${label}] addTrack skipped (already added via transceiver):`, e.message);
+    }
   });
 
-  // ICE candidate forwarding
+  // ICE
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      console.log(`[WebRTC][${label}] Sending ICE candidate`);
+      console.log(`[WebRTC][${label}] ICE candidate → remote`);
       socket.emit("ice-candidate", { targetUserId, candidate: event.candidate });
+    } else {
+      console.log(`[WebRTC][${label}] ICE gathering complete`);
     }
   };
 
-  // ── ontrack: critical — this is how remote audio arrives ──────────────
+  // ontrack — primary path for receiving remote audio
   pc.ontrack = (event) => {
-    console.log(`[WebRTC][${label}] ontrack fired`);
-    console.log(`  track kind=${event.track?.kind} id=${event.track?.id} enabled=${event.track?.enabled} readyState=${event.track?.readyState}`);
-    console.log(`  streams count=${event.streams?.length}`);
+    console.log(`[WebRTC][${label}] *** ontrack fired ***`);
+    console.log(`  track.kind=${event.track?.kind}`);
+    console.log(`  track.id=${event.track?.id}`);
+    console.log(`  track.enabled=${event.track?.enabled}`);
+    console.log(`  track.muted=${event.track?.muted}`);
+    console.log(`  track.readyState=${event.track?.readyState}`);
+    console.log(`  streams.length=${event.streams?.length}`);
+
+    // Ensure track is enabled
+    if (event.track) event.track.enabled = true;
 
     if (event.streams && event.streams[0]) {
-      const remoteStream = event.streams[0];
-      console.log(`[WebRTC][${label}] Remote stream id=${remoteStream.id}`);
-      console.log(`  audio tracks: ${remoteStream.getAudioTracks().length}`);
-      remoteStream.getAudioTracks().forEach((t) =>
-        console.log(`  audio track id=${t.id} enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
-      );
-      onRemoteStream(remoteStream);
-    } else if (event.track) {
-      // Fallback: build stream from individual track
-      console.warn(`[WebRTC][${label}] ontrack: no streams[], building manually from track`);
-      const fallbackStream = new MediaStream([event.track]);
-      onRemoteStream(fallbackStream);
+      const rs = event.streams[0];
+      console.log(`[WebRTC][${label}] Remote stream id=${rs.id}, audioTracks=${rs.getAudioTracks().length}`);
+      onRemoteStream(rs);
+      _playRemoteStream(rs);
+    } else if (event.track && event.track.kind === "audio") {
+      // Fallback: browser didn't include streams[], build one manually
+      console.warn(`[WebRTC][${label}] No streams[] in ontrack, building MediaStream from track`);
+      const rs = new MediaStream([event.track]);
+      onRemoteStream(rs);
+      _playRemoteStream(rs);
     }
   };
 }
@@ -112,9 +201,9 @@ export const useCallStore = create((set, get) => ({
   _callTimeoutId: null,
   _durationTimerId: null,
 
-  // ────────────────────────────────────────────────────────────────────────
-  // initCallListeners — idempotent socket event setup
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // initCallListeners
+  // ─────────────────────────────────────────────────────────────────────────
   initCallListeners: () => {
     const socket = useSocketStore.getState().socket;
     if (!socket) return;
@@ -128,84 +217,67 @@ export const useCallStore = create((set, get) => ({
 
     socket.on("incoming-call", (data) => get()._handleIncomingCall(data));
     socket.on("call-answer-forwarded", ({ answer }) => get()._handleCallAnswer(answer));
-
     socket.on("call-connected", () => {
-      console.log("[WebCall] call-connected received");
+      console.log("[WebCall] call-connected");
       if (get().callStatus === "outgoing") get()._transitionToActive();
     });
-
     socket.on("ice-candidate-forwarded", ({ candidate }) => get()._handleRemoteIceCandidate(candidate));
-    socket.on("call-ended", () => { console.log("[WebCall] Remote ended the call"); get()._cleanup(); });
-    socket.on("call-rejected", () => { console.log("[WebCall] Remote rejected the call"); get()._cleanup(); });
+    socket.on("call-ended", () => { console.log("[WebCall] call-ended"); get()._cleanup(); });
+    socket.on("call-rejected", () => { console.log("[WebCall] call-rejected"); get()._cleanup(); });
 
     set({ _listenersInitialized: true });
+    console.log("[WebCall] Call listeners initialized");
   },
 
-  // ────────────────────────────────────────────────────────────────────────
-  // startCall — web user initiates outgoing call (CALLER)
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // startCall — CALLER
+  // ─────────────────────────────────────────────────────────────────────────
   startCall: async (targetUserId, name, avatar) => {
     const socket = useSocketStore.getState().socket;
     if (!socket) return;
 
     if (get().callStatus !== "idle") {
-      console.warn("[WebCall] startCall called while not idle — ignoring");
+      console.warn("[WebCall] startCall ignored — status:", get().callStatus);
       return;
     }
 
-    try {
-      // 1. Get local audio
-      const stream = await getLocalAudioStream();
+    console.log("[WebCall] === startCall → CALLER ===");
 
-      // 2. Create peer connection
+    try {
+      const stream = await getLocalAudioStream();
       const iceConfig = await fetchIceServers();
       const pc = createPC(iceConfig.iceServers);
 
-      // 3. Wire tracks + ontrack BEFORE createOffer
-      wirePC(pc, stream, (remoteStream) => set({ remoteStream }), targetUserId, socket, "CALLER");
+      // Wire addTransceiver + addTrack + ontrack BEFORE createOffer
+      wirePC(pc, stream, (rs) => set({ remoteStream: rs }), targetUserId, socket, "CALLER");
 
-      // 4. ICE state → fallback transition (primary = _handleCallAnswer)
+      // Fallback ICE transition (primary is _handleCallAnswer)
       pc.oniceconnectionstatechange = () => {
-        const iceState = pc.iceConnectionState;
-        console.log("[WebCall] Caller ICE state:", iceState);
-        if ((iceState === "connected" || iceState === "completed") && get().callStatus === "outgoing") {
+        const s = pc.iceConnectionState;
+        console.log("[WebCall] CALLER ICE:", s);
+        if ((s === "connected" || s === "completed") && get().callStatus === "outgoing") {
           get()._transitionToActive();
-        } else if (iceState === "failed" || iceState === "disconnected") {
+        } else if (s === "failed" || s === "disconnected") {
           get()._cleanup();
         }
       };
-
       pc.onconnectionstatechange = () => {
-        const connState = pc.connectionState;
-        console.log("[WebCall] Caller connection state:", connState);
-        if (connState === "connected" && get().callStatus === "outgoing") {
-          get()._transitionToActive();
-        } else if (connState === "failed" || connState === "closed") {
-          get()._cleanup();
-        }
+        const s = pc.connectionState;
+        console.log("[WebCall] CALLER conn:", s);
+        if (s === "connected" && get().callStatus === "outgoing") get()._transitionToActive();
+        else if (s === "failed" || s === "closed") get()._cleanup();
       };
 
-      set({
-        localStream: stream,
-        peerConnection: pc,
-        remoteUserId: targetUserId,
-        remoteUserName: name,
-        remoteUserAvatar: avatar,
-        callType: "audio",
-        callStatus: "outgoing",
-      });
+      set({ localStream: stream, peerConnection: pc, remoteUserId: targetUserId, remoteUserName: name, remoteUserAvatar: avatar, callType: "audio", callStatus: "outgoing" });
 
-      // 5. Create offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      console.log("[WebCall] Offer SDP:\n", offer.sdp);
+      console.log("[WebCall] CALLER offer SDP:\n", offer.sdp);
 
       socket.emit("call-offer", { targetUserId, offer, callType: "audio" });
 
-      // 60s no-answer timeout
       const timeoutId = setTimeout(() => {
         if (get().callStatus === "outgoing") {
-          console.log("[WebCall] Outgoing call timed out");
           socket.emit("call-end", { targetUserId });
           get()._cleanup();
         }
@@ -218,60 +290,52 @@ export const useCallStore = create((set, get) => ({
     }
   },
 
-  // ────────────────────────────────────────────────────────────────────────
-  // acceptCall — web user accepts incoming call (RECEIVER)
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // acceptCall — RECEIVER
+  // ─────────────────────────────────────────────────────────────────────────
   acceptCall: async () => {
     const socket = useSocketStore.getState().socket;
     const { remoteUserId, incomingOffer, pendingCandidates, callId } = get();
     if (!socket || !remoteUserId) return;
 
+    console.log("[WebCall] === acceptCall → RECEIVER ===");
     const existingTimeout = get()._callTimeoutId;
     if (existingTimeout) clearTimeout(existingTimeout);
 
     try {
-      // 1. Get local audio
       const stream = await getLocalAudioStream();
-
-      // 2. Create peer connection
       const iceConfig = await fetchIceServers();
       const pc = createPC(iceConfig.iceServers);
 
-      // 3. Wire tracks + ontrack BEFORE setRemoteDescription
-      wirePC(pc, stream, (remoteStream) => set({ remoteStream }), remoteUserId, socket, "RECEIVER");
+      // Wire addTransceiver + addTrack + ontrack BEFORE setRemoteDescription
+      wirePC(pc, stream, (rs) => set({ remoteStream: rs }), remoteUserId, socket, "RECEIVER");
 
       pc.oniceconnectionstatechange = () => {
-        const iceState = pc.iceConnectionState;
-        console.log("[WebCall] Receiver ICE state:", iceState);
-        if (iceState === "failed" || iceState === "disconnected") get()._cleanup();
+        const s = pc.iceConnectionState;
+        console.log("[WebCall] RECEIVER ICE:", s);
+        if (s === "failed" || s === "disconnected") get()._cleanup();
       };
 
       set({ localStream: stream, peerConnection: pc });
 
-      // 4. Set remote description (offer)
       if (incomingOffer) {
         await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
-        console.log("[WebCall] Set remote description (offer)");
+        console.log("[WebCall] RECEIVER set remote description (offer)");
       }
 
-      // 5. Create and send answer
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      console.log("[WebCall] Answer SDP:\n", answer.sdp);
+      console.log("[WebCall] RECEIVER answer SDP:\n", answer.sdp);
 
       socket.emit("call-answer", { targetUserId: remoteUserId, answer, callId });
 
-      // 6. Flush queued ICE candidates
+      // Flush queued ICE candidates
       for (const candidate of pendingCandidates) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error("[WebCall] Failed to add queued ICE candidate:", e);
-        }
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (e) { console.error("[WebCall] addIceCandidate failed:", e); }
       }
       set({ pendingCandidates: [], _callTimeoutId: null });
 
-      // 7. Transition to active
       get()._transitionToActive();
 
     } catch (e) {
@@ -280,89 +344,75 @@ export const useCallStore = create((set, get) => ({
     }
   },
 
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   // _transitionToActive
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   _transitionToActive: () => {
-    const { callStatus, _durationTimerId, _callTimeoutId } = get();
+    if (get().callStatus === "active") return;
 
-    if (callStatus === "active") {
-      console.log("[WebCall] Already active — skipping duplicate transition");
-      return;
-    }
-
+    const { _durationTimerId, _callTimeoutId } = get();
     if (_durationTimerId) clearInterval(_durationTimerId);
     if (_callTimeoutId) clearTimeout(_callTimeoutId);
 
-    const timerId = setInterval(() => {
-      set((s) => ({ callDurationSeconds: s.callDurationSeconds + 1 }));
-    }, 1000);
+    const timerId = setInterval(() => set((s) => ({ callDurationSeconds: s.callDurationSeconds + 1 })), 1000);
 
-    set({
-      callStatus: "active",
-      _durationTimerId: timerId,
-      _callTimeoutId: null,
-      callDurationSeconds: 0,
-    });
+    set({ callStatus: "active", _durationTimerId: timerId, _callTimeoutId: null, callDurationSeconds: 0 });
+    console.log("[WebCall] ✅ ACTIVE");
 
-    console.log("[WebCall] ✅ Transitioned to ACTIVE");
+    // If remoteStream is already set, play it now
+    const { remoteStream } = get();
+    if (remoteStream) {
+      console.log("[WebCall] remoteStream already present at transition — playing now");
+      _playRemoteStream(remoteStream);
+    }
   },
 
-  // ────────────────────────────────────────────────────────────────────────
-  // rejectCall
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // rejectCall / endCall
+  // ─────────────────────────────────────────────────────────────────────────
   rejectCall: () => {
-    const socket = useSocketStore.getState().socket;
     const { remoteUserId, callId } = get();
-    if (socket && remoteUserId) socket.emit("call-reject", { targetUserId: remoteUserId, callId });
+    useSocketStore.getState().socket?.emit("call-reject", { targetUserId: remoteUserId, callId });
     get()._cleanup();
   },
 
-  // ────────────────────────────────────────────────────────────────────────
-  // endCall
-  // ────────────────────────────────────────────────────────────────────────
   endCall: () => {
-    const socket = useSocketStore.getState().socket;
     const { remoteUserId, callId } = get();
-    if (socket && remoteUserId) socket.emit("call-end", { targetUserId: remoteUserId, callId });
+    useSocketStore.getState().socket?.emit("call-end", { targetUserId: remoteUserId, callId });
     get()._cleanup();
   },
 
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   // toggleMute
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   toggleMute: () => {
     set((state) => {
       const isMuted = !state.isMuted;
       if (state.localStream) {
         state.localStream.getAudioTracks().forEach((track) => {
           track.enabled = !isMuted;
-          console.log(`[WebCall] Audio track ${track.id} enabled=${track.enabled}`);
+          console.log(`[WebCall] mic track enabled=${track.enabled}`);
         });
       }
       return { isMuted };
     });
   },
 
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   // _handleIncomingCall
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   _handleIncomingCall: (data) => {
     if (get().callStatus !== "idle") {
-      console.log("[WebCall] Ignored incoming call — already in a call:", get().callStatus);
+      console.log("[WebCall] Ignoring incoming-call — not idle:", get().callStatus);
       return;
     }
-
     console.log("[WebCall] Incoming call from:", data.callerName);
 
     const existingTimeout = get()._callTimeoutId;
     if (existingTimeout) clearTimeout(existingTimeout);
 
     const timeoutId = setTimeout(() => {
-      if (get().callStatus === "incoming") {
-        console.log("[WebCall] Incoming call timed out (missed)");
-        get()._cleanup();
-      }
+      if (get().callStatus === "incoming") get()._cleanup();
     }, 60_000);
 
     set({
@@ -378,102 +428,78 @@ export const useCallStore = create((set, get) => ({
     });
   },
 
-  // ────────────────────────────────────────────────────────────────────────
-  // _handleCallAnswer — CALLER receives answer from receiver
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // _handleCallAnswer — CALLER side receives answer
+  // ─────────────────────────────────────────────────────────────────────────
   _handleCallAnswer: async (answer) => {
     const { peerConnection, pendingCandidates, callStatus } = get();
-    if (!peerConnection) {
-      console.warn("[WebCall] _handleCallAnswer: no peerConnection");
-      return;
-    }
-    if (callStatus !== "outgoing") {
-      console.warn("[WebCall] _handleCallAnswer: unexpected status:", callStatus);
+    if (!peerConnection || callStatus !== "outgoing") {
+      console.warn("[WebCall] _handleCallAnswer skipped — pc:", !!peerConnection, "status:", callStatus);
       return;
     }
 
-    console.log("[WebCall] Received call answer — setting remote description");
-
+    console.log("[WebCall] Setting remote description (answer)");
     try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-      console.log("[WebCall] Remote description set (answer)");
+      console.log("[WebCall] Remote description set ✅");
 
       for (const candidate of pendingCandidates) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error("[WebCall] Failed ICE candidate flush:", e);
-        }
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (e) { console.error("[WebCall] ICE flush failed:", e); }
       }
       set({ pendingCandidates: [] });
 
-      // Transition to active immediately after setting remote description
       get()._transitionToActive();
     } catch (e) {
       console.error("[WebCall] _handleCallAnswer failed:", e);
     }
   },
 
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   // _handleRemoteIceCandidate
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   _handleRemoteIceCandidate: async (candidate) => {
     const { peerConnection, pendingCandidates } = get();
     if (peerConnection && peerConnection.remoteDescription) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.error("[WebCall] addIceCandidate failed:", e);
-      }
+      try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch (e) { console.error("[WebCall] addIceCandidate failed:", e); }
     } else {
       set({ pendingCandidates: [...pendingCandidates, candidate] });
     }
   },
 
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   // _cleanup
-  // ────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   _cleanup: () => {
     const { localStream, peerConnection, _callTimeoutId, _durationTimerId } = get();
+    console.log("[WebCall] Cleaning up...");
 
-    console.log("[WebCall] Cleaning up call...");
-
-    if (localStream) {
-      localStream.getTracks().forEach((track) => { try { track.stop(); } catch { /* ignore */ } });
-    }
+    if (localStream) localStream.getTracks().forEach((t) => { try { t.stop(); } catch {} });
 
     if (peerConnection) {
       try {
-        peerConnection.onicecandidate = null;
         peerConnection.ontrack = null;
+        peerConnection.onicecandidate = null;
         peerConnection.oniceconnectionstatechange = null;
         peerConnection.onconnectionstatechange = null;
         peerConnection.onsignalingstatechange = null;
         peerConnection.close();
-      } catch { /* ignore */ }
+      } catch {}
     }
+
+    // Stop the singleton audio element
+    _playRemoteStream(null);
 
     if (_callTimeoutId) clearTimeout(_callTimeoutId);
     if (_durationTimerId) clearInterval(_durationTimerId);
 
     set({
-      callStatus: "idle",
-      callType: null,
-      remoteUserId: null,
-      remoteUserName: null,
-      remoteUserAvatar: null,
-      localStream: null,
-      remoteStream: null,
-      peerConnection: null,
-      isMuted: false,
-      callDurationSeconds: 0,
-      callId: null,
-      incomingOffer: null,
-      pendingCandidates: [],
-      _callTimeoutId: null,
-      _durationTimerId: null,
+      callStatus: "idle", callType: null, remoteUserId: null, remoteUserName: null,
+      remoteUserAvatar: null, localStream: null, remoteStream: null, peerConnection: null,
+      isMuted: false, callDurationSeconds: 0, callId: null, incomingOffer: null,
+      pendingCandidates: [], _callTimeoutId: null, _durationTimerId: null,
     });
-
-    console.log("[WebCall] Cleanup complete.");
+    console.log("[WebCall] Cleanup done.");
   },
 }));
