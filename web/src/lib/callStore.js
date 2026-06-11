@@ -8,6 +8,7 @@ import { useSocketStore } from "./socket";
 const fetchIceServers = async () => {
   try {
     const response = await api.get("/turn/credentials");
+    console.log("[WebRTC] TURN credentials from backend:", JSON.stringify(response.data, null, 2));
     return { iceServers: response.data };
   } catch (error) {
     console.error("[WebRTC] Failed to fetch ICE servers:", error);
@@ -19,7 +20,10 @@ const fetchIceServers = async () => {
 // Helper: create RTCPeerConnection with state logging
 // ─────────────────────────────────────────────────────────────────────────────
 function createPC(iceServers) {
-  const pc = new RTCPeerConnection({ iceServers });
+  const pc = new RTCPeerConnection({
+    iceServers,
+    // iceTransportPolicy: "relay", // CRITICAL FOR DEBUGGING: Force TURN relay
+  });
   pc.onconnectionstatechange = () => console.log("[WebRTC] connectionState:", pc.connectionState);
   pc.oniceconnectionstatechange = () => console.log("[WebRTC] iceConnectionState:", pc.iceConnectionState);
   pc.onsignalingstatechange = () => console.log("[WebRTC] signalingState:", pc.signalingState);
@@ -65,10 +69,13 @@ function wirePC(pc, localStream, onRemoteStream, targetUserId, socket, label) {
   // ICE
   pc.onicecandidate = event => {
     if (event.candidate) {
+      console.log(`[WebRTC][${label}] [ICE Candidate]`, event.candidate.candidate);
       socket.emit("ice-candidate", {
         targetUserId,
         candidate: event.candidate,
       });
+    } else {
+      console.log(`[WebRTC][${label}] ICE gathering complete`);
     }
   };
 
