@@ -2,64 +2,8 @@ import { create } from "zustand";
 import api from "./axios";
 import { useSocketStore } from "./socket";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SINGLETON AUDIO ELEMENT — lives at module scope, never garbage collected,
-// never unmounted. This is the definitive fix for "audio element lost" bugs.
-// ─────────────────────────────────────────────────────────────────────────────
-const _remoteAudio = new Audio();
-_remoteAudio.autoplay = true;
-
-/**
- * Attach a MediaStream to the singleton audio element and force playback.
- * Safe to call multiple times — detaches before re-attaching.
- */
-function _playRemoteStream(stream) {
-  if (!stream) {
-    _remoteAudio.srcObject = null;
-    console.log("[WebRTC] Remote audio cleared");
-    return;
-  }
-
-  console.log("[WebRTC] ▶ Attaching remote stream to Audio singleton", stream.id);
-  const audioTracks = stream.getAudioTracks();
-  console.log("[WebRTC]   Audio tracks:", audioTracks.length);
-  audioTracks.forEach((t) =>
-    console.log(`  id=${t.id} enabled=${t.enabled} muted=${t.muted} readyState=${t.readyState}`)
-  );
-
-  if (audioTracks.length === 0) {
-    console.error("[WebRTC] ❌ Remote stream has NO audio tracks — cannot play audio");
-    return;
-  }
-
-  _remoteAudio.srcObject = null; // force detach first
-  _remoteAudio.srcObject = stream;
-
-  const tryPlay = () => {
-    _remoteAudio.play()
-      .then(() => console.log("[WebRTC] ✅ Remote audio playing"))
-      .catch((err) => {
-        console.error("[WebRTC] ❌ play() failed:", err.name, err.message);
-        if (err.name === "NotAllowedError") {
-          // Browser autoplay blocked — user hasn't interacted yet.
-          // Listen for next click/keydown to start playback.
-          const unlock = () => {
-            _remoteAudio.play()
-              .then(() => console.log("[WebRTC] ✅ Audio unlocked via user gesture"))
-              .catch((e) => console.error("[WebRTC] Unlock play failed:", e));
-            document.removeEventListener("click", unlock);
-            document.removeEventListener("keydown", unlock);
-          };
-          document.addEventListener("click", unlock, { once: true });
-          document.addEventListener("keydown", unlock, { once: true });
-          console.warn("[WebRTC] Autoplay blocked — waiting for user gesture to unlock audio");
-        }
-      });
-  };
-
-  // Small timeout lets the browser finish processing srcObject assignment
-  setTimeout(tryPlay, 100);
-}
+// Playback is handled by the persistent HTMLAudioElement in ActiveCallScreen.jsx
+// This avoids duplicate audio instances and fulfills the React Ref architecture.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TURN / STUN server config
@@ -169,13 +113,11 @@ function wirePC(pc, localStream, onRemoteStream, targetUserId, socket, label) {
       const rs = event.streams[0];
       console.log(`[WebRTC][${label}] Remote stream id=${rs.id}, audioTracks=${rs.getAudioTracks().length}`);
       onRemoteStream(rs);
-      _playRemoteStream(rs);
     } else if (event.track && event.track.kind === "audio") {
       // Fallback: browser didn't include streams[], build one manually
       console.warn(`[WebRTC][${label}] No streams[] in ontrack, building MediaStream from track`);
       const rs = new MediaStream([event.track]);
       onRemoteStream(rs);
-      _playRemoteStream(rs);
     }
   };
 }
@@ -358,13 +300,6 @@ export const useCallStore = create((set, get) => ({
 
     set({ callStatus: "active", _durationTimerId: timerId, _callTimeoutId: null, callDurationSeconds: 0 });
     console.log("[WebCall] ✅ ACTIVE");
-
-    // If remoteStream is already set, play it now
-    const { remoteStream } = get();
-    if (remoteStream) {
-      console.log("[WebCall] remoteStream already present at transition — playing now");
-      _playRemoteStream(remoteStream);
-    }
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -487,9 +422,6 @@ export const useCallStore = create((set, get) => ({
         peerConnection.close();
       } catch {}
     }
-
-    // Stop the singleton audio element
-    _playRemoteStream(null);
 
     if (_callTimeoutId) clearTimeout(_callTimeoutId);
     if (_durationTimerId) clearInterval(_durationTimerId);
