@@ -2,9 +2,6 @@ import { create } from "zustand";
 import api from "./axios";
 import { useSocketStore } from "./socket";
 
-// Playback is handled by the persistent HTMLAudioElement in ActiveCallScreen.jsx
-// This avoids duplicate audio instances and fulfills the React Ref architecture.
-
 // ─────────────────────────────────────────────────────────────────────────────
 // TURN / STUN server config
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,72 +49,42 @@ async function getLocalAudioStream() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: add local tracks + wire ontrack on the PC
-//
-// CRITICAL ORDER:
-//   1. addTransceiver (explicit sendrecv) — ensures the SDP offer/answer
-//      contains an audio m-line with sendrecv direction
-//   2. addTrack (local media)
-//   3. ontrack (remote media)
-//   4. THEN createOffer / setRemoteDescription
+// Helper: wirePC - EXACTLY AS REQUESTED
+// ONLY uses addTrack() to avoid duplicate senders / broken SDP negotiation.
 // ─────────────────────────────────────────────────────────────────────────────
 function wirePC(pc, localStream, onRemoteStream, targetUserId, socket, label) {
-  // Explicit transceiver ensures SDP has audio m-line with sendrecv
-  // react-native-webrtc on the other side needs this to negotiate properly.
-  const transceiver = pc.addTransceiver("audio", { direction: "sendrecv" });
-  console.log(`[WebRTC][${label}] addTransceiver audio sendrecv, mid=${transceiver.mid}`);
+  // ONLY addTrack
+  localStream.getTracks().forEach(track => {
+    pc.addTrack(track, localStream);
 
-  // Replace the transceiver's sender track with the real local track
-  const localAudioTrack = localStream.getAudioTracks()[0];
-  if (localAudioTrack && transceiver.sender) {
-    transceiver.sender.replaceTrack(localAudioTrack).catch((e) =>
-      console.warn(`[WebRTC][${label}] replaceTrack failed:`, e)
+    console.log(
+      `[WebRTC][${label}] addTrack id=${track.id} kind=${track.kind}`
     );
-  }
-
-  // Also call addTrack for maximum compat (some browser/RN-webrtc combos need both)
-  localStream.getTracks().forEach((track) => {
-    try {
-      pc.addTrack(track, localStream);
-      console.log(`[WebRTC][${label}] addTrack id=${track.id} kind=${track.kind}`);
-    } catch (e) {
-      // DOMException: track already added via transceiver — safe to ignore
-      console.log(`[WebRTC][${label}] addTrack skipped (already added via transceiver):`, e.message);
-    }
   });
 
   // ICE
-  pc.onicecandidate = (event) => {
+  pc.onicecandidate = event => {
     if (event.candidate) {
-      console.log(`[WebRTC][${label}] ICE candidate → remote`);
-      socket.emit("ice-candidate", { targetUserId, candidate: event.candidate });
-    } else {
-      console.log(`[WebRTC][${label}] ICE gathering complete`);
+      socket.emit("ice-candidate", {
+        targetUserId,
+        candidate: event.candidate,
+      });
     }
   };
 
-  // ontrack — primary path for receiving remote audio
-  pc.ontrack = (event) => {
-    console.log(`[WebRTC][${label}] *** ontrack fired ***`);
-    console.log(`  track.kind=${event.track?.kind}`);
-    console.log(`  track.id=${event.track?.id}`);
-    console.log(`  track.enabled=${event.track?.enabled}`);
-    console.log(`  track.muted=${event.track?.muted}`);
-    console.log(`  track.readyState=${event.track?.readyState}`);
-    console.log(`  streams.length=${event.streams?.length}`);
+  // Remote stream
+  pc.ontrack = event => {
+    console.log(`[WebRTC][${label}] ontrack fired`);
 
-    // Ensure track is enabled
-    if (event.track) event.track.enabled = true;
+    const remoteStream = event.streams[0];
 
-    if (event.streams && event.streams[0]) {
-      const rs = event.streams[0];
-      console.log(`[WebRTC][${label}] Remote stream id=${rs.id}, audioTracks=${rs.getAudioTracks().length}`);
-      onRemoteStream(rs);
-    } else if (event.track && event.track.kind === "audio") {
-      // Fallback: browser didn't include streams[], build one manually
-      console.warn(`[WebRTC][${label}] No streams[] in ontrack, building MediaStream from track`);
-      const rs = new MediaStream([event.track]);
-      onRemoteStream(rs);
+    if (remoteStream) {
+      console.log(
+        `[WebRTC][${label}] remote audio tracks =`,
+        remoteStream.getAudioTracks().length
+      );
+
+      onRemoteStream(remoteStream);
     }
   };
 }
@@ -190,10 +157,9 @@ export const useCallStore = create((set, get) => ({
       const iceConfig = await fetchIceServers();
       const pc = createPC(iceConfig.iceServers);
 
-      // Wire addTransceiver + addTrack + ontrack BEFORE createOffer
+      // ONLY use addTrack
       wirePC(pc, stream, (rs) => set({ remoteStream: rs }), targetUserId, socket, "CALLER");
 
-      // Fallback ICE transition (primary is _handleCallAnswer)
       pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState;
         console.log("[WebCall] CALLER ICE:", s);
@@ -213,6 +179,7 @@ export const useCallStore = create((set, get) => ({
       set({ localStream: stream, peerConnection: pc, remoteUserId: targetUserId, remoteUserName: name, remoteUserAvatar: avatar, callType: "audio", callStatus: "outgoing" });
 
       const offer = await pc.createOffer();
+      // Use modern syntax directly
       await pc.setLocalDescription(offer);
       console.log("[WebCall] CALLER offer SDP:\n", offer.sdp);
 
@@ -249,7 +216,6 @@ export const useCallStore = create((set, get) => ({
       const iceConfig = await fetchIceServers();
       const pc = createPC(iceConfig.iceServers);
 
-      // Wire addTransceiver + addTrack + ontrack BEFORE setRemoteDescription
       wirePC(pc, stream, (rs) => set({ remoteStream: rs }), remoteUserId, socket, "RECEIVER");
 
       pc.oniceconnectionstatechange = () => {
@@ -261,7 +227,8 @@ export const useCallStore = create((set, get) => ({
       set({ localStream: stream, peerConnection: pc });
 
       if (incomingOffer) {
-        await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
+        // MODERN SYNTAX: use offer directly
+        await pc.setRemoteDescription(incomingOffer);
         console.log("[WebCall] RECEIVER set remote description (offer)");
       }
 
@@ -271,9 +238,9 @@ export const useCallStore = create((set, get) => ({
 
       socket.emit("call-answer", { targetUserId: remoteUserId, answer, callId });
 
-      // Flush queued ICE candidates
+      // MODERN SYNTAX: addIceCandidate handles raw object
       for (const candidate of pendingCandidates) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+        try { await pc.addIceCandidate(candidate); }
         catch (e) { console.error("[WebCall] addIceCandidate failed:", e); }
       }
       set({ pendingCandidates: [], _callTimeoutId: null });
@@ -375,11 +342,13 @@ export const useCallStore = create((set, get) => ({
 
     console.log("[WebCall] Setting remote description (answer)");
     try {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      // MODERN SYNTAX: pass answer directly
+      await peerConnection.setRemoteDescription(answer);
       console.log("[WebCall] Remote description set ✅");
 
+      // MODERN SYNTAX
       for (const candidate of pendingCandidates) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); }
+        try { await peerConnection.addIceCandidate(candidate); }
         catch (e) { console.error("[WebCall] ICE flush failed:", e); }
       }
       set({ pendingCandidates: [] });
@@ -396,7 +365,7 @@ export const useCallStore = create((set, get) => ({
   _handleRemoteIceCandidate: async (candidate) => {
     const { peerConnection, pendingCandidates } = get();
     if (peerConnection && peerConnection.remoteDescription) {
-      try { await peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); }
+      try { await peerConnection.addIceCandidate(candidate); }
       catch (e) { console.error("[WebCall] addIceCandidate failed:", e); }
     } else {
       set({ pendingCandidates: [...pendingCandidates, candidate] });
