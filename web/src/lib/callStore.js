@@ -22,7 +22,6 @@ const fetchIceServers = async () => {
 function createPC(iceServers) {
   const pc = new RTCPeerConnection({
     iceServers,
-    // iceTransportPolicy: "relay", // CRITICAL FOR DEBUGGING: Force TURN relay
   });
   pc.onconnectionstatechange = () => console.log("[WebRTC] connectionState:", pc.connectionState);
   pc.oniceconnectionstatechange = () => console.log("[WebRTC] iceConnectionState:", pc.iceConnectionState);
@@ -58,7 +57,7 @@ async function getLocalAudioStream() {
 // ─────────────────────────────────────────────────────────────────────────────
 function wirePC(pc, localStream, onRemoteStream, targetUserId, socket, label) {
   // ONLY addTrack
-  localStream.getTracks().forEach(track => {
+  localStream.getAudioTracks().forEach(track => {
     pc.addTrack(track, localStream);
 
     console.log(
