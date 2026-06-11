@@ -87,7 +87,7 @@ export function ActiveCallScreen() {
       />
 
       {callStatus === "active" && (
-        <div className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/95 backdrop-blur-xl">
+        <div className="fixed inset-0 z-9997 flex items-center justify-center bg-black/95 backdrop-blur-xl">
           <div className="flex flex-col items-center gap-6 p-8 w-full max-w-sm">
             {/* Timer */}
             <div className="text-white/60 text-lg font-mono tracking-widest">
@@ -140,7 +140,7 @@ export function ActiveCallScreen() {
                 className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all duration-200 hover:scale-105 shadow-xl shadow-red-500/30"
                 title="End Call"
               >
-                <Phone className="w-10 h-10 rotate-[135deg]" />
+                <Phone className="w-10 h-10 rotate-135deg" />
               </button>
             </div>
           </div>
