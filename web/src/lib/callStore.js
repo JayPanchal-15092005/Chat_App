@@ -166,12 +166,36 @@ export const useCallStore = create((set, get) => ({
       // ONLY use addTrack
       wirePC(pc, stream, (rs) => set({ remoteStream: rs }), targetUserId, socket, "CALLER");
 
+      let _iceDisconnectTimer = null;
       pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState;
         console.log("[WebCall] CALLER ICE:", s);
-        if ((s === "connected" || s === "completed") && get().callStatus === "outgoing") {
-          get()._transitionToActive();
-        } else if (s === "failed" || s === "disconnected") {
+
+        // Clear any pending disconnect timer on recovery
+        if (s === "connected" || s === "completed") {
+          if (_iceDisconnectTimer) {
+            clearTimeout(_iceDisconnectTimer);
+            _iceDisconnectTimer = null;
+            console.log("[WebCall] ICE reconnected — disconnect timer cleared");
+          }
+          if (get().callStatus === "outgoing") get()._transitionToActive();
+        }
+
+        // Temporary disconnect — grace period before giving up
+        else if (s === "disconnected") {
+          console.log("[WebCall] CALLER ICE temporarily disconnected — starting 15s grace period");
+          _iceDisconnectTimer = setTimeout(() => {
+            if (pc.iceConnectionState === "disconnected") {
+              console.log("[WebCall] CALLER ICE disconnect timeout exceeded — cleaning up");
+              get()._cleanup();
+            }
+          }, 15_000);
+        }
+
+        // Unrecoverable states
+        else if (s === "failed" || s === "closed") {
+          console.log("[WebCall] CALLER ICE failed/closed — cleaning up");
+          if (_iceDisconnectTimer) clearTimeout(_iceDisconnectTimer);
           get()._cleanup();
         }
       };
@@ -224,10 +248,37 @@ export const useCallStore = create((set, get) => ({
 
       wirePC(pc, stream, (rs) => set({ remoteStream: rs }), remoteUserId, socket, "RECEIVER");
 
+      let _iceDisconnectTimer = null;
       pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState;
         console.log("[WebCall] RECEIVER ICE:", s);
-        if (s === "failed" || s === "disconnected") get()._cleanup();
+
+        // Clear any pending disconnect timer on recovery
+        if (s === "connected" || s === "completed") {
+          if (_iceDisconnectTimer) {
+            clearTimeout(_iceDisconnectTimer);
+            _iceDisconnectTimer = null;
+            console.log("[WebCall] ICE reconnected — disconnect timer cleared");
+          }
+        }
+
+        // Temporary disconnect — grace period before giving up
+        else if (s === "disconnected") {
+          console.log("[WebCall] RECEIVER ICE temporarily disconnected — starting 15s grace period");
+          _iceDisconnectTimer = setTimeout(() => {
+            if (pc.iceConnectionState === "disconnected") {
+              console.log("[WebCall] RECEIVER ICE disconnect timeout exceeded — cleaning up");
+              get()._cleanup();
+            }
+          }, 15_000);
+        }
+
+        // Unrecoverable states
+        else if (s === "failed" || s === "closed") {
+          console.log("[WebCall] RECEIVER ICE failed/closed — cleaning up");
+          if (_iceDisconnectTimer) clearTimeout(_iceDisconnectTimer);
+          get()._cleanup();
+        }
       };
 
       set({ localStream: stream, peerConnection: pc });
