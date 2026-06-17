@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/clerk-react";
+import { useFirebaseAuth } from "./useFirebaseAuth";
 import api from "../lib/axios";
 
 export const useMessages = (chatId) => {
-  const { getToken } = useAuth();
+  const { firebaseUser } = useFirebaseAuth();
 
   return useQuery({
     queryKey: ["messages", chatId],
     queryFn: async () => {
-      const token = await getToken();
+      const token = await firebaseUser.getIdToken();
       const res = await api.get(`/messages/chat/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

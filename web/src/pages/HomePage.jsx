@@ -1,4 +1,4 @@
-import { SignInButton, SignUpButton } from "@clerk/clerk-react";
+import { Link } from "react-router";
 import { ArrowRightIcon, SparklesIcon } from "lucide-react";
 
 function HomePage() {
@@ -20,18 +20,14 @@ function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <SignInButton mode="modal">
-              <button className="px-5 py-2.5 text-sm font-medium text-base-content/50 hover:text-base-content transition">
-                Sign in
-              </button>
-            </SignInButton>
+            <Link to="/signup" className="px-5 py-2.5 text-sm font-medium text-base-content/50 hover:text-base-content transition">
+              Sign in
+            </Link>
 
-            <SignUpButton mode="modal">
-              <button className="btn gap-2 bg-linear-to-r from-amber-500 to-orange-500 text-sm font-semibold rounded-full hover:opacity-90 shadow-lg shadow-orange-500/25 border-none">
-                Get Started
-                <ArrowRightIcon className="w-4 h-4" />
-              </button>
-            </SignUpButton>
+            <Link to="/signup" className="btn gap-2 bg-linear-to-r from-amber-500 to-orange-500 text-sm font-semibold rounded-full hover:opacity-90 shadow-lg shadow-orange-500/25 border-none">
+              Get Started
+              <ArrowRightIcon className="w-4 h-4" />
+            </Link>
           </div>
         </nav>
 
@@ -62,18 +58,14 @@ function HomePage() {
 
           {/* CTA BTNS */}
           <div className="mt-10 flex items-center gap-4">
-            <SignUpButton mode="modal">
-              <button className="group flex items-center gap-3 px-8 py-4 bg-base-100 text-base-content font-semibold rounded-2xl hover:bg-base-200 transition">
-                Start chatting
-                <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
-            </SignUpButton>
+            <Link to="/signup" className="group flex items-center gap-3 px-8 py-4 bg-base-100 text-base-content font-semibold rounded-2xl hover:bg-base-200 transition">
+              Start chatting
+              <ArrowRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </Link>
 
-            <SignInButton mode="modal">
-              <button className="px-8 py-4 text-base-content/60 font-semibold hover:text-base-content transition">
-                I have an account
-              </button>
-            </SignInButton>
+            <Link to="/signup" className="px-8 py-4 text-base-content/60 font-semibold hover:text-base-content transition">
+              I have an account
+            </Link>
           </div>
 
           {/* Avatars */}
