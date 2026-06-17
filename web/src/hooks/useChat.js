@@ -1,14 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@clerk/clerk-react";
+import { useFirebaseAuth } from "./useFirebaseAuth";
 import api from "../lib/axios";
 
 export const useChats = () => {
-  const { getToken } = useAuth();
+  const { firebaseUser } = useFirebaseAuth();
 
   return useQuery({
     queryKey: ["chats"],
     queryFn: async () => {
-      const token = await getToken();
+      const token = await firebaseUser.getIdToken();
       const res = await api.get("/chats", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -18,12 +18,12 @@ export const useChats = () => {
 };
 
 export const useGetOrCreateChat = () => {
-  const { getToken } = useAuth();
+  const { firebaseUser } = useFirebaseAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (participantId) => {
-      const token = await getToken();
+      const token = await firebaseUser.getIdToken();
       const res = await api.post(
         `/chats/with/${participantId}`,
         {},

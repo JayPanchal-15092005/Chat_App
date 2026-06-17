@@ -1,4 +1,4 @@
-import { UserButton, useUser } from "@clerk/clerk-react";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useSocketStore } from "../lib/socket";
@@ -15,13 +15,12 @@ import { ChatInput } from "../components/ChatInput";
 import { useCurrentUser } from "../hooks/useCurrentuser";
 import { NewChatModal } from "../components/NewChatModel";
 
-import axios from "axios";
-import { useAuth } from "@clerk/clerk-react";
+import { useFirebaseAuth } from "../hooks/useFirebaseAuth";
 import { uploadToImageKit } from "../lib/imagekit";
 
 function ChatPage() {
   const { data: currentUser } = useCurrentUser();
-  const { getToken } = useAuth();
+  const { firebaseUser } = useFirebaseAuth();
   const queryClient = useQueryClient();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,7 +89,7 @@ function ChatPage() {
   const handleSendMedia = async (type, file) => {
     if (!activeChatId || !socket || !currentUser) return;
     try {
-      const token = await getToken();
+      const token = await firebaseUser.getIdToken();
       const url = await uploadToImageKit(file, type, token);
       
       const text = type === "image" ? "📸 Image" : "🎤 Voice Message";
@@ -119,7 +118,7 @@ function ChatPage() {
   const handleTogglePin = useCallback(
     async (chat) => {
       try {
-        const token = await getToken();
+        const token = await firebaseUser.getIdToken();
         await axios.patch(
           `${import.meta.env.VITE_API_URL}/api/chats/${chat._id}/pin`,
           {},
@@ -135,7 +134,7 @@ function ChatPage() {
         console.error("Failed to toggle pin:", err);
       }
     },
-    [getToken, queryClient]
+    [firebaseUser, queryClient]
   );
 
   const activeChat = chats.find((c) => c._id === activeChatId);
@@ -153,7 +152,12 @@ function ChatPage() {
               </div>
               <span className="font-bold">Whisper</span>
             </Link>
-            <UserButton />
+            <button 
+              onClick={() => useFirebaseAuth().signOut()} 
+              className="btn btn-sm btn-ghost text-base-content/70"
+            >
+              Sign out
+            </button>
           </div>
           <button
             onClick={() => setIsNewChatModalOpen(true)}

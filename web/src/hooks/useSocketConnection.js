@@ -1,19 +1,19 @@
 import { useEffect } from "react";
-import { useAuth } from "@clerk/clerk-react";
+import { useFirebaseAuth } from "./useFirebaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSocketStore } from "../lib/socket";
 import { useCallStore } from "../lib/callStore";
 
 export const useSocketConnection = (activeChatId) => {
-  const { getToken, isSignedIn } = useAuth();
+  const { firebaseUser, isSignedIn } = useFirebaseAuth();
   const queryClient = useQueryClient();
 
   const { socket, connect, disconnect, joinChat, leaveChat } = useSocketStore();
 
   // connect socket on mount
   useEffect(() => {
-    if (isSignedIn) {
-      getToken().then((token) => {
+    if (isSignedIn && firebaseUser) {
+      firebaseUser.getIdToken().then((token) => {
         if (token) {
           connect(token, queryClient);
           if (!useCallStore.getState()._listenersInitialized) {
@@ -30,7 +30,7 @@ export const useSocketConnection = (activeChatId) => {
       useCallStore.getState()._cleanup();
       disconnect();
     };
-  }, [isSignedIn, connect, disconnect, getToken, queryClient]);
+  }, [isSignedIn, connect, disconnect, firebaseUser, queryClient]);
 
   // join/leave chat rooms - if you have a chatid in the url this will run
   useEffect(() => {
