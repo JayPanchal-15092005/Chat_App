@@ -20,7 +20,7 @@ import { uploadToImageKit } from "../lib/imagekit";
 
 function ChatPage() {
   const { data: currentUser } = useCurrentUser();
-  const { firebaseUser } = useFirebaseAuth();
+  const { firebaseUser, signOut } = useFirebaseAuth();
   const queryClient = useQueryClient();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -153,7 +153,7 @@ function ChatPage() {
               <span className="font-bold">Whisper</span>
             </Link>
             <button 
-              onClick={() => useFirebaseAuth().signOut()} 
+              onClick={signOut} 
               className="btn btn-sm btn-ghost text-base-content/70"
             >
               Sign out

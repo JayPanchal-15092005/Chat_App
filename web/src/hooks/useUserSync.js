@@ -1,10 +1,11 @@
 import { useFirebaseAuth } from "./useFirebaseAuth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import api from "../lib/axios";
 
 function useUserSync() {
   const { isSignedIn, firebaseUser } = useFirebaseAuth();
+  const queryClient = useQueryClient();
   const hasSynced = useRef(false);
 
   const {
@@ -17,12 +18,13 @@ function useUserSync() {
       const res = await api.post(
         "/auth/callback",
         {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       return res.data;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+    }
   });
 
   useEffect(() => {
