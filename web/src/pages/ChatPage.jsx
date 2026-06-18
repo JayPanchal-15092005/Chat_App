@@ -150,7 +150,7 @@ function ChatPage() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
                 <SparklesIcon className="w-4 h-4 text-white" />
               </div>
-              <span className="font-bold">Whisper</span>
+              <span className="font-bold">Chat-App</span>
             </Link>
             <button 
               onClick={signOut} 

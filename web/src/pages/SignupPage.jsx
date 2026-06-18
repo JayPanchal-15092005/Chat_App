@@ -36,7 +36,7 @@ export default function SignupPage() {
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-base-content">
-          {isSignUp ? "Create your account" : "Sign in to Whisper"}
+          {isSignUp ? "Create your account" : "Sign in to Chat-App"}
         </h2>
         <p className="mt-2 text-center text-sm text-base-content/60">
           Or{" "}
