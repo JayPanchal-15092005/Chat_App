@@ -155,7 +155,7 @@ function HomePage() {
 
         {/* Radial Glow */}
         <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px]
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-125 h-125
            bg-linear-to-r from-amber-500/20 to-orange-500/20 rounded-full blur-[100px]"
         />
 

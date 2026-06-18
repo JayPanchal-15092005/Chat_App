@@ -1,20 +1,24 @@
 import { Navigate, Route, Routes } from "react-router";
 import HomePage from "./pages/HomePage";
 import ChatPage from "./pages/ChatPage";
-import { useFirebaseAuth } from "./hooks/useFirebaseAuth";
 import SignupPage from "./pages/SignupPage";
 import PageLoader from "./components/PageLoader";
-import useUserSync from "./hooks/useUserSync";
 import { IncomingCallModal } from "./components/IncomingCallModal";
 import { OutgoingCallScreen } from "./components/OutgoingCallScreen";
 import { ActiveCallScreen } from "./components/ActiveCallScreen";
 import { Analytics } from "@vercel/analytics/react";
+import { useAuthStore } from "./hooks/useAuthStore";
+import { useEffect } from "react";
 
 function App() {
-  const { isLoaded, isSignedIn } = useFirebaseAuth();
-  useUserSync();
+  const { token, isLoading, restoreToken } = useAuthStore();
+  const isSignedIn = !!token;
 
-  if (!isLoaded) return <PageLoader />;
+  useEffect(() => {
+    restoreToken();
+  }, [restoreToken]);
+
+  if (isLoading) return <PageLoader />;
 
   return (
     <>

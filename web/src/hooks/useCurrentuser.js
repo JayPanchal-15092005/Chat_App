@@ -1,18 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import api from "../lib/axios";
-import { useFirebaseAuth } from "./useFirebaseAuth";
+import { useApi } from "./useApi";
+import { useAuthStore } from "./useAuthStore";
 
 export const useCurrentUser = () => {
-  const { firebaseUser } = useFirebaseAuth();
+  const { apiWithAuth } = useApi();
+  const { token } = useAuthStore();
 
   return useQuery({
     queryKey: ["currentUser"],
     queryFn: async () => {
-      const token = await firebaseUser.getIdToken();
-      const { data } = await api.get("/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data } = await apiWithAuth({ url: "/auth/me", method: "GET" });
       return data;
     },
+    enabled: !!token,
   });
 };

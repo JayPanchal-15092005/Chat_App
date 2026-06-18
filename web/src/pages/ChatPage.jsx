@@ -15,12 +15,14 @@ import { ChatInput } from "../components/ChatInput";
 import { useCurrentUser } from "../hooks/useCurrentuser";
 import { NewChatModal } from "../components/NewChatModel";
 
-import { useFirebaseAuth } from "../hooks/useFirebaseAuth";
+import { useApi } from "../hooks/useApi";
+import { useAuthStore } from "../hooks/useAuthStore";
 import { uploadToImageKit } from "../lib/imagekit";
 
 function ChatPage() {
   const { data: currentUser } = useCurrentUser();
-  const { firebaseUser, signOut } = useFirebaseAuth();
+  const { token, clearAuth } = useAuthStore();
+  const { apiWithAuth } = useApi();
   const queryClient = useQueryClient();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -89,7 +91,6 @@ function ChatPage() {
   const handleSendMedia = async (type, file) => {
     if (!activeChatId || !socket || !currentUser) return;
     try {
-      const token = await firebaseUser.getIdToken();
       const url = await uploadToImageKit(file, type, token);
       
       const text = type === "image" ? "📸 Image" : "🎤 Voice Message";
@@ -118,12 +119,10 @@ function ChatPage() {
   const handleTogglePin = useCallback(
     async (chat) => {
       try {
-        const token = await firebaseUser.getIdToken();
-        await axios.patch(
-          `${import.meta.env.VITE_API_URL}/api/chats/${chat._id}/pin`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        await apiWithAuth({
+          url: `/chats/${chat._id}/pin`,
+          method: "PATCH"
+        });
         // Optimistic update
         queryClient.setQueryData(["chats"], (old) =>
           old?.map((c) =>
@@ -134,7 +133,7 @@ function ChatPage() {
         console.error("Failed to toggle pin:", err);
       }
     },
-    [firebaseUser, queryClient]
+    [apiWithAuth, queryClient]
   );
 
   const activeChat = chats.find((c) => c._id === activeChatId);
@@ -147,13 +146,13 @@ function ChatPage() {
         <div className="p-4 border-b border-base-300">
           <div className="flex items-center justify-between mb-4">
             <Link to="/chat" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-linear-to-br from-amber-400 to-orange-500 flex items-center justify-center">
                 <SparklesIcon className="w-4 h-4 text-white" />
               </div>
               <span className="font-bold">Chat-App</span>
             </Link>
             <button 
-              onClick={signOut} 
+              onClick={clearAuth} 
               className="btn btn-sm btn-ghost text-base-content/70"
             >
               Sign out
@@ -161,7 +160,7 @@ function ChatPage() {
           </div>
           <button
             onClick={() => setIsNewChatModalOpen(true)}
-            className="btn btn-primary btn-block gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 border-none text-white"
+            className="btn btn-primary btn-block gap-2 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 border-none text-white"
           >
             <PlusIcon className="w-4 h-4" />
             New Chat
