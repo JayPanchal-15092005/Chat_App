@@ -16,6 +16,6 @@ export const useMessages = (chatId) => {
       });
       return data;
     },
-    enabled: !!chatId && !!token,
+    enabled: !!chatId && chatId !== "undefined" && chatId !== "null" && !!token,
   });
 };
