@@ -1,18 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import api from "../lib/axios";
+import { useApi } from "./useApi";
+import { useAuthStore } from "./useAuthStore";
 
 export const useMessages = (chatId) => {
-  const { firebaseUser } = useFirebaseAuth();
+  const { apiWithAuth } = useApi();
+  const { token } = useAuthStore();
 
   return useQuery({
     queryKey: ["messages", chatId],
     queryFn: async () => {
-      const token = await firebaseUser.getIdToken();
-      const res = await api.get(`/messages/chat/${chatId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const { data } = await apiWithAuth({
+        url:  `/messages/chat/${chatId}`,
+        method: "GET"
       });
-      return res.data;
+      return data;
     },
-    enabled: !!chatId,
+    enabled: !!chatId && !!token,
   });
 };
