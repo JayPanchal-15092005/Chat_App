@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useFirebaseAuth } from "./useFirebaseAuth";
 import api from "../lib/axios";
 
 export const useMessages = (chatId) => {
