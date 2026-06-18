@@ -1,4 +1,4 @@
-import { formatTime } from "../lib/utils";
+import { formatTime, getAvatarUrl } from "../lib/utils";
 import { useSocketStore } from "../lib/socket";
 import { PinIcon } from "lucide-react";
 
@@ -28,7 +28,7 @@ export function ChatListItem({ chat, isActive, onClick, onTogglePin }) {
       )}
 
       <div className="relative">
-        <img src={chat.participant?.avatar} className="w-11 h-11 rounded-full bg-base-300/40" alt="" />
+        <img src={getAvatarUrl(chat.participant?.name, chat.participant?.avatar)} className="w-11 h-11 rounded-full bg-base-300/40" alt="" />
         {isOnline && (
           <span className="absolute bottom-0 right-0 w-3 h-3 bg-success rounded-full border-2 border-base-200" />
         )}

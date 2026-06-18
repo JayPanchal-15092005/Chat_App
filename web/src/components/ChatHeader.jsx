@@ -1,4 +1,5 @@
 import { Phone } from "lucide-react";
+import { getAvatarUrl } from "../lib/utils";
 import { useSocketStore } from "../lib/socket";
 import { useCallStore } from "../lib/callStore";
 
@@ -15,7 +16,7 @@ export function ChatHeader({ participant, chatId }) {
     <div className="h-16 px-6 border-b border-base-300 flex items-center justify-between bg-base-200/80">
       <div className="flex items-center gap-4">
       <div className="relative">
-        <img src={participant?.avatar} className="w-10 h-10 rounded-full bg-base-300/40" alt="" />
+        <img src={getAvatarUrl(participant?.name, participant?.avatar)} className="w-10 h-10 rounded-full bg-base-300/40" alt="" />
         {isOnline && (
           <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success rounded-full border-2 border-base-200" />
         )}
@@ -29,7 +30,7 @@ export function ChatHeader({ participant, chatId }) {
       </div>
 
       <button
-        onClick={() => startCall(participant._id, participant.name, participant.avatar)}
+        onClick={() => startCall(participant._id, participant.name, getAvatarUrl(participant.name, participant.avatar))}
         className="btn btn-circle btn-ghost text-primary hover:bg-primary/10"
         title="Start Audio Call"
       >

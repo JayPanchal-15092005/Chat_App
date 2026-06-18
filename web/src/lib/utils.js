@@ -10,3 +10,9 @@ export function formatTime(date) {
   if (diff < 604800000) return d.toLocaleDateString([], { weekday: "short" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
+
+export function getAvatarUrl(name, avatar) {
+  if (avatar) return avatar;
+  const encodedName = encodeURIComponent(name || "User");
+  return `https://ui-avatars.com/api/?name=${encodedName}&background=random`;
+}

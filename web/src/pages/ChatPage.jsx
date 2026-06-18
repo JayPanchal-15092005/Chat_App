@@ -14,10 +14,12 @@ import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
 import { useCurrentUser } from "../hooks/useCurrentuser";
 import { NewChatModal } from "../components/NewChatModel";
+import { ProfileModal } from "../components/ProfileModal";
 
 import { useApi } from "../hooks/useApi";
 import { useAuthStore } from "../hooks/useAuthStore";
 import { uploadToImageKit } from "../lib/imagekit";
+import { getAvatarUrl } from "../lib/utils";
 
 function ChatPage() {
   const { data: currentUser } = useCurrentUser();
@@ -30,6 +32,7 @@ function ChatPage() {
 
   const [messageInput, setMessageInput] = useState("");
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
 
   const messagesEndRef = useRef(null);
@@ -145,12 +148,23 @@ function ChatPage() {
         {/* Header */}
         <div className="p-4 border-b border-base-300">
           <div className="flex items-center justify-between mb-4">
-            <Link to="/chat" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-linear-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                <SparklesIcon className="w-4 h-4 text-white" />
+            <button 
+              onClick={() => setIsProfileModalOpen(true)} 
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity text-left"
+            >
+              <div className="relative">
+                <img 
+                  src={getAvatarUrl(currentUser?.name, currentUser?.avatar)} 
+                  className="w-10 h-10 rounded-full bg-base-300 border border-base-content/10" 
+                  alt="" 
+                />
+                <div className="absolute bottom-0 right-0 w-3 h-3 bg-success rounded-full border-2 border-base-200" />
               </div>
-              <span className="font-bold">Chat-App</span>
-            </Link>
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm truncate">{currentUser?.name || "Loading..."}</h3>
+                <p className="text-xs text-base-content/60 truncate">My Profile</p>
+              </div>
+            </button>
             <button 
               onClick={clearAuth} 
               className="btn btn-sm btn-ghost text-base-content/70"
@@ -246,6 +260,11 @@ function ChatPage() {
         isPending={startChatMutation.isPending}
         isOpen={isNewChatModalOpen}
         onClose={() => setIsNewChatModalOpen(false)}
+      />
+
+      <ProfileModal 
+        isOpen={isProfileModalOpen} 
+        onClose={() => setIsProfileModalOpen(false)} 
       />
     </div>
   );
