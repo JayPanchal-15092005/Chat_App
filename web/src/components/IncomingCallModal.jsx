@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Phone, PhoneOff, User } from "lucide-react";
 import { useCallStore } from "../lib/callStore";
+import { getAvatarUrl } from "../lib/utils";
 
 export function IncomingCallModal() {
   const { callStatus, remoteUserName, remoteUserAvatar, callType, acceptCall, rejectCall } = useCallStore();
@@ -52,7 +53,7 @@ export function IncomingCallModal() {
           
           {remoteUserAvatar ? (
             <img 
-              src={remoteUserAvatar} 
+              src={getAvatarUrl(remoteUserName, remoteUserAvatar)} 
               className="w-32 h-32 rounded-full object-cover z-10" 
               alt="Caller" 
             />

@@ -1,5 +1,6 @@
 import { Phone, User } from "lucide-react";
 import { useCallStore } from "../lib/callStore";
+import { getAvatarUrl } from "../lib/utils";
 
 export function OutgoingCallScreen() {
   const { callStatus, remoteUserName, remoteUserAvatar, callType, endCall } = useCallStore();
@@ -18,9 +19,9 @@ export function OutgoingCallScreen() {
           
           {remoteUserAvatar ? (
             <img 
-              src={remoteUserAvatar} 
-              className="w-32 h-32 rounded-full object-cover z-10" 
-              alt="Callee" 
+              src={getAvatarUrl(remoteUserName, remoteUserAvatar)} 
+              alt={remoteUserName} 
+              className="w-32 h-32 rounded-full object-cover z-10"
             />
           ) : (
             <div className="w-32 h-32 rounded-full bg-base-300 flex items-center justify-center z-10">
