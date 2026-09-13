@@ -8,4 +8,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Expose env vars with VITE_ or API_ prefix to browser (import.meta.env)
+  envPrefix: ['VITE_', 'API_'],
 })

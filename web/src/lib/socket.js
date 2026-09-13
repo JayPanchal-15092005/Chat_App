@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { io } from "socket.io-client";
 
-const SOCKET_URL = import.meta.env.VITE_API_URL;
+const SOCKET_URL = import.meta.env.API_URL;
 
 export const useSocketStore = create((set, get) => ({
   socket: null,
@@ -168,9 +168,9 @@ export const useSocketStore = create((set, get) => ({
       chat: chatId,
       sender: {
         _id: currentUser._id,
-        name: currentUser.fullName || currentUser.firstName || "You",
-        email: currentUser.primaryEmailAddress?.emailAddress || "",
-        avatar: currentUser.imageUrl,
+        name: currentUser.name || "You",
+        email: currentUser.email || "",
+        avatar: currentUser.avatar || "",
       },
       text,
       type,
